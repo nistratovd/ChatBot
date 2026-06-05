@@ -5,7 +5,6 @@ import logging
 import signal
 from contextlib import suppress
 
-import asyncpg
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -14,6 +13,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
 
 from app.config import get_settings
+from app.database import create_pool
 from app.keyboards import question_keyboard
 from app.models import AnswerOption, Question
 from app.repository import QuizRepository, apply_schema
@@ -129,17 +129,6 @@ async def _send_question(message: Message, question: Question, options: list[Ans
         await message.answer_photo(photo=photo, caption=text, reply_markup=keyboard)
     else:
         await message.answer(text, reply_markup=keyboard)
-
-
-async def create_pool() -> asyncpg.Pool:
-    settings = get_settings()
-    return await asyncpg.create_pool(
-        dsn=settings.database_url,
-        min_size=settings.db_pool_min_size,
-        max_size=settings.db_pool_max_size,
-        command_timeout=10,
-        server_settings={"application_name": "telegram_quiz_bot"},
-    )
 
 
 async def main() -> None:

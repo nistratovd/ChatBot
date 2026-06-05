@@ -43,6 +43,14 @@
    docker compose run --rm bot python -m app.seed app/data/questions.example.json
    ```
 
+   Если выполняете загрузку с хоста, а не внутри Docker Compose, используйте адрес PostgreSQL, опубликованный на `127.0.0.1`:
+
+   ```bash
+   python -m app.seed app/data/questions.example.json --database-url postgresql://quiz:long-random-password@127.0.0.1:5432/quiz_bot
+   ```
+
+   Ошибка `Temporary failure in name resolution` обычно означает, что команда запущена вне сети Docker Compose с `DATABASE_URL`, где хост указан как `postgres`.
+
 6. Откройте бота в Telegram и отправьте `/start`.
 
 > Если пользователь нажал `/start` до загрузки вопросов, бот создаёт пустую незавершённую попытку.
@@ -102,6 +110,7 @@ docker compose run --rm bot python -m app.report winners --format csv > winners.
 ```
 
 Если запускаете отчёт не через Docker Compose, укажите `DATABASE_URL` в окружении или передайте подключение явно через `--database-url`.
+Для запуска с хоста вместо Docker-сервисного имени `postgres` используйте `127.0.0.1`, например `postgresql://quiz:...@127.0.0.1:5432/quiz_bot`.
 
 ## Структура базы данных
 
