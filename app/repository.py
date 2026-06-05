@@ -61,14 +61,22 @@ class QuizRepository:
     async def get_next_question(self, attempt_id: int) -> Question | None:
         row = await self.pool.fetchrow(
             """
-            SELECT q.id, q.sort_order, q.text, q.photo_url, q.photo_file_id
-            FROM questions q
-            WHERE q.is_active = TRUE
-              AND NOT EXISTS (
-                  SELECT 1 FROM user_answers ua
-                  WHERE ua.attempt_id=$1 AND ua.question_id=q.id
-              )
-            ORDER BY q.sort_order ASC
+            SELECT q.id, q.sort_order, q.text, q.photo_url, q.photo_file_id, q.display_number
+            FROM (
+                SELECT
+                    active_questions.*,
+                    NULLIF(
+                        ROW_NUMBER() OVER (ORDER BY active_questions.sort_order ASC, active_questions.id ASC) - 1,
+                        0
+                    )::int AS display_number
+                FROM questions active_questions
+                WHERE active_questions.is_active = TRUE
+            ) q
+            WHERE NOT EXISTS (
+                SELECT 1 FROM user_answers ua
+                WHERE ua.attempt_id=$1 AND ua.question_id=q.id
+            )
+            ORDER BY q.sort_order ASC, q.id ASC
             LIMIT 1
             """,
             attempt_id,
@@ -318,6 +326,7 @@ def _question_from_row(row: asyncpg.Record) -> Question:
         text=row["text"],
         photo_url=row["photo_url"],
         photo_file_id=row["photo_file_id"],
+        display_number=row["display_number"],
     )
 
 

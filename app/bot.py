@@ -118,7 +118,11 @@ async def send_next_question(message: Message, repo: QuizRepository, attempt_id:
 
 
 async def _send_question(message: Message, question: Question, options: list[AnswerOption]) -> None:
-    text = f"Вопрос {question.sort_order}:\n{question.text}"
+    if question.display_number is None:
+        text = question.text
+    else:
+        text = f"Вопрос {question.display_number}:\n{question.text}"
+
     keyboard = question_keyboard(options)
     photo = question.photo_file_id or question.photo_url
     if photo:

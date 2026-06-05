@@ -9,6 +9,7 @@ class Question:
     text: str
     photo_url: str | None
     photo_file_id: str | None
+    display_number: int | None
 
 
 @dataclass(slots=True, frozen=True)
