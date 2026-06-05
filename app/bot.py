@@ -78,9 +78,8 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
         await callback.answer("Ответ уже сохранён или вопрос устарел", show_alert=True)
         return
 
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_reply_markup(reply_markup=None)
     await callback.answer("Ответ сохранён")
+    await remove_answered_question(callback.message)
 
     completed = await repo.complete_attempt_if_finished(attempt.id, callback.from_user)
     if completed:
@@ -88,6 +87,14 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
         return
 
     await send_next_question(callback.message, repo, attempt.id)
+
+
+async def remove_answered_question(message: Message) -> None:
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        with suppress(TelegramBadRequest):
+            await message.edit_reply_markup(reply_markup=None)
 
 
 @router.message()
