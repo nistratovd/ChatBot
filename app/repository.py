@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Iterable
 from pathlib import Path
@@ -38,9 +39,7 @@ class QuizRepository:
                 user.id,
             )
             if row is None:
-                total_questions = await conn.fetchval(
-                    "SELECT COUNT(*) FROM questions WHERE is_active = TRUE"
-                )
+                total_questions = await _count_active_questions(conn)
                 row = await conn.fetchrow(
                     """
                     INSERT INTO quiz_attempts (
@@ -55,19 +54,29 @@ class QuizRepository:
                     user.last_name,
                     total_questions,
                 )
+            else:
+                row = await _refresh_unanswered_attempt_total(conn, row)
             return _attempt_from_row(row)
 
     async def get_next_question(self, attempt_id: int) -> Question | None:
         row = await self.pool.fetchrow(
             """
-            SELECT q.id, q.sort_order, q.text, q.photo_url, q.photo_file_id
-            FROM questions q
-            WHERE q.is_active = TRUE
-              AND NOT EXISTS (
-                  SELECT 1 FROM user_answers ua
-                  WHERE ua.attempt_id=$1 AND ua.question_id=q.id
-              )
-            ORDER BY q.sort_order ASC
+            SELECT q.id, q.sort_order, q.text, q.photo_url, q.photo_file_id, q.display_number
+            FROM (
+                SELECT
+                    active_questions.*,
+                    NULLIF(
+                        ROW_NUMBER() OVER (ORDER BY active_questions.sort_order ASC, active_questions.id ASC) - 1,
+                        0
+                    )::int AS display_number
+                FROM questions active_questions
+                WHERE active_questions.is_active = TRUE
+            ) q
+            WHERE NOT EXISTS (
+                SELECT 1 FROM user_answers ua
+                WHERE ua.attempt_id=$1 AND ua.question_id=q.id
+            )
+            ORDER BY q.sort_order ASC, q.id ASC
             LIMIT 1
             """,
             attempt_id,
@@ -212,14 +221,47 @@ class QuizRepository:
             return True
 
 
+async def _count_active_questions(conn: asyncpg.Connection) -> int:
+    return await conn.fetchval("SELECT COUNT(*) FROM questions WHERE is_active = TRUE")
+
+
+async def _refresh_unanswered_attempt_total(
+    conn: asyncpg.Connection,
+    row: asyncpg.Record,
+) -> asyncpg.Record:
+    answered_count = await conn.fetchval(
+        "SELECT COUNT(*) FROM user_answers WHERE attempt_id=$1",
+        row["id"],
+    )
+    if answered_count:
+        return row
+
+    total_questions = await _count_active_questions(conn)
+    if total_questions == row["total_questions"]:
+        return row
+
+    refreshed = await conn.fetchrow(
+        """
+        UPDATE quiz_attempts
+        SET total_questions=$2
+        WHERE id=$1 AND completed_at IS NULL
+        RETURNING id, telegram_user_id, completed_at, total_questions, correct_answers, is_all_correct
+        """,
+        row["id"],
+        total_questions,
+    )
+    return refreshed or row
+
+
 async def apply_schema(pool: asyncpg.Pool, sql_path: Path = Path("app/sql/001_init.sql")) -> None:
-    schema_sql = sql_path.read_text(encoding="utf-8")
+    schema_sql = await asyncio.to_thread(sql_path.read_text, encoding="utf-8")
     async with pool.acquire() as conn:
         await conn.execute(schema_sql)
 
 
 async def seed_questions(pool: asyncpg.Pool, json_path: Path) -> None:
-    questions = json.loads(json_path.read_text(encoding="utf-8"))
+    questions_json = await asyncio.to_thread(json_path.read_text, encoding="utf-8")
+    questions = json.loads(questions_json)
     async with pool.acquire() as conn, conn.transaction():
         for question in questions:
             question_id = await conn.fetchval(
@@ -240,6 +282,24 @@ async def seed_questions(pool: asyncpg.Pool, json_path: Path) -> None:
             )
             await conn.execute("DELETE FROM answer_options WHERE question_id=$1", question_id)
             await _insert_options(conn, question_id, question["options"])
+
+        await _refresh_empty_active_attempts_total(conn)
+
+
+async def _refresh_empty_active_attempts_total(conn: asyncpg.Connection) -> None:
+    total_questions = await _count_active_questions(conn)
+    await conn.execute(
+        """
+        UPDATE quiz_attempts
+        SET total_questions=$1
+        WHERE completed_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM user_answers ua
+              WHERE ua.attempt_id=quiz_attempts.id
+          )
+        """,
+        total_questions,
+    )
 
 
 async def _insert_options(
@@ -266,6 +326,7 @@ def _question_from_row(row: asyncpg.Record) -> Question:
         text=row["text"],
         photo_url=row["photo_url"],
         photo_file_id=row["photo_file_id"],
+        display_number=row["display_number"],
     )
 
 
