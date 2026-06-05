@@ -1,0 +1,19 @@
+[project]
+name = "telegram-quiz-bot"
+version = "0.1.0"
+description = "High-load Telegram quiz bot with PostgreSQL persistence"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.8,<4.0",
+    "asyncpg>=0.29,<1.0",
+    "pydantic-settings>=2.2,<3.0",
+    "uvloop>=0.19,<1.0; platform_system != 'Windows'",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+ignore = ["E501"]

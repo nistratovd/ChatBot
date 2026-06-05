@@ -1,0 +1,171 @@
+import asyncio
+import importlib
+import importlib.util
+import logging
+import signal
+from contextlib import suppress
+
+import asyncpg
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import Command, CommandStart
+from aiogram.types import CallbackQuery, Message
+
+from app.config import get_settings
+from app.keyboards import question_keyboard
+from app.models import AnswerOption, Question
+from app.repository import QuizRepository, apply_schema
+
+router = Router(name="quiz")
+logger = logging.getLogger(__name__)
+
+
+@router.message(CommandStart())
+async def start_quiz(message: Message, repo: QuizRepository) -> None:
+    if message.from_user is None:
+        return
+
+    attempt = await repo.get_or_create_active_attempt(message.from_user)
+    if attempt is None:
+        await message.answer("Вы уже прошли опрос. Повторное прохождение недоступно.")
+        return
+
+    if attempt.total_questions == 0:
+        await message.answer("Опрос пока не содержит активных вопросов. Попробуйте позже.")
+        return
+
+    await message.answer("Опрос начался. Выберите один вариант ответа для каждого вопроса.")
+    await send_next_question(message, repo, attempt.id)
+
+
+@router.message(Command("help"))
+async def help_command(message: Message) -> None:
+    await message.answer(
+        "Команды:\n"
+        "/start — начать или продолжить опрос\n"
+        "/help — показать подсказку"
+    )
+
+
+@router.callback_query(F.data.startswith("answer:"))
+async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
+    if callback.from_user is None or callback.message is None or callback.data is None:
+        await callback.answer("Некорректный запрос", show_alert=True)
+        return
+
+    try:
+        _, question_id_raw, option_id_raw = callback.data.split(":", maxsplit=2)
+        question_id = int(question_id_raw)
+        option_id = int(option_id_raw)
+    except ValueError:
+        await callback.answer("Некорректный ответ", show_alert=True)
+        return
+
+    attempt = await repo.get_or_create_active_attempt(callback.from_user)
+    if attempt is None:
+        await callback.answer("Вы уже прошли опрос", show_alert=True)
+        return
+
+    saved = await repo.save_answer(
+        attempt_id=attempt.id,
+        user=callback.from_user,
+        question_id=question_id,
+        option_id=option_id,
+    )
+    if saved is None:
+        await callback.answer("Ответ уже сохранён или вопрос устарел", show_alert=True)
+        return
+
+    with suppress(TelegramBadRequest):
+        await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer("Ответ сохранён")
+
+    completed = await repo.complete_attempt_if_finished(attempt.id, callback.from_user)
+    if completed:
+        await callback.message.answer("Опрос завершён. Спасибо за ваши ответы!")
+        return
+
+    await send_next_question(callback.message, repo, attempt.id)
+
+
+@router.message()
+async def fallback(message: Message) -> None:
+    await message.answer("Нажмите /start, чтобы начать или продолжить опрос.")
+
+
+async def send_next_question(message: Message, repo: QuizRepository, attempt_id: int) -> None:
+    question = await repo.get_next_question(attempt_id)
+    if question is None:
+        await message.answer("Опрос завершён. Спасибо за ваши ответы!")
+        return
+
+    options = await repo.get_options(question.id)
+    if not options:
+        logger.warning("Question %s has no answer options", question.id)
+        await message.answer("Вопрос временно недоступен. Обратитесь к администратору.")
+        return
+
+    await _send_question(message, question, options)
+
+
+async def _send_question(message: Message, question: Question, options: list[AnswerOption]) -> None:
+    text = f"Вопрос {question.sort_order}:\n{question.text}"
+    keyboard = question_keyboard(options)
+    photo = question.photo_file_id or question.photo_url
+    if photo:
+        await message.answer_photo(photo=photo, caption=text, reply_markup=keyboard)
+    else:
+        await message.answer(text, reply_markup=keyboard)
+
+
+async def create_pool() -> asyncpg.Pool:
+    settings = get_settings()
+    return await asyncpg.create_pool(
+        dsn=settings.database_url,
+        min_size=settings.db_pool_min_size,
+        max_size=settings.db_pool_max_size,
+        command_timeout=10,
+        server_settings={"application_name": "telegram_quiz_bot"},
+    )
+
+
+async def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    settings = get_settings()
+    pool = await create_pool()
+    await apply_schema(pool)
+
+    bot = Bot(
+        token=settings.bot_token.get_secret_value(),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    dispatcher = Dispatcher(repo=QuizRepository(pool))
+    dispatcher.include_router(router)
+
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop_event.set)
+
+    polling_task = asyncio.create_task(
+        dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
+    )
+    stop_task = asyncio.create_task(stop_event.wait())
+    done, pending = await asyncio.wait({polling_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+    if stop_task in done:
+        polling_task.cancel()
+    for task in pending:
+        task.cancel()
+    await bot.session.close()
+    await pool.close()
+
+
+if __name__ == "__main__":
+    if importlib.util.find_spec("uvloop") is not None:
+        importlib.import_module("uvloop").install()
+    asyncio.run(main())
