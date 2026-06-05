@@ -29,14 +29,14 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
 
     attempt = await repo.get_or_create_active_attempt(message.from_user)
     if attempt is None:
-        await message.answer("Вы уже прошли опрос. Повторное прохождение недоступно.")
+        await message.answer("Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»")
         return
 
     if attempt.total_questions == 0:
         await message.answer("Опрос пока не содержит активных вопросов. Попробуйте позже.")
         return
 
-    await message.answer("Опрос начался. Выберите один вариант ответа для каждого вопроса.")
+    #await message.answer("Опрос начался. Выберите один вариант ответа для каждого вопроса.")
     await send_next_question(message, repo, attempt.id)
 
 
@@ -65,7 +65,7 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
 
     attempt = await repo.get_or_create_active_attempt(callback.from_user)
     if attempt is None:
-        await callback.answer("Вы уже прошли опрос", show_alert=True)
+        await callback.answer("Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»", show_alert=True)
         return
 
     saved = await repo.save_answer(
@@ -83,7 +83,7 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
 
     completed = await repo.complete_attempt_if_finished(attempt.id, callback.from_user)
     if completed:
-        await callback.message.answer("Опрос завершён. Спасибо за ваши ответы!")
+        await callback.message.answer("Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏")
         return
 
     await send_next_question(callback.message, repo, attempt.id)
@@ -105,7 +105,7 @@ async def fallback(message: Message) -> None:
 async def send_next_question(message: Message, repo: QuizRepository, attempt_id: int) -> None:
     question = await repo.get_next_question(attempt_id)
     if question is None:
-        await message.answer("Опрос завершён. Спасибо за ваши ответы!")
+        await message.answer("Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏")
         return
 
     options = await repo.get_options(question.id)
