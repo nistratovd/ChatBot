@@ -1,0 +1,23 @@
+[
+  {
+    "sort_order": 1,
+    "text": "Какой язык используется для этого бота?",
+    "photo_url": null,
+    "photo_file_id": null,
+    "options": [
+      {"text": "Python", "is_correct": true, "sort_order": 1},
+      {"text": "Java", "is_correct": false, "sort_order": 2},
+      {"text": "PHP", "is_correct": false, "sort_order": 3}
+    ]
+  },
+  {
+    "sort_order": 2,
+    "text": "Где хранятся вопросы и ответы пользователей?",
+    "photo_url": null,
+    "photo_file_id": null,
+    "options": [
+      {"text": "Только в памяти", "is_correct": false, "sort_order": 1},
+      {"text": "В PostgreSQL", "is_correct": true, "sort_order": 2}
+    ]
+  }
+]
