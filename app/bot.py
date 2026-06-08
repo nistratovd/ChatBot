@@ -29,14 +29,20 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
 
     attempt = await repo.get_or_create_active_attempt(message.from_user)
     if attempt is None:
-        await message.answer("Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»")
+        await message.answer(
+            "Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»",
+            protect_content=True,
+        )
         return
 
     if attempt.total_questions == 0:
-        await message.answer("Опрос пока не содержит активных вопросов. Попробуйте позже.")
+        await message.answer(
+            "Опрос пока не содержит активных вопросов. Попробуйте позже.",
+            protect_content=True,
+        )
         return
 
-    #await message.answer("Опрос начался. Выберите один вариант ответа для каждого вопроса.")
+    # await message.answer("Опрос начался. Выберите один вариант ответа для каждого вопроса.")
     await send_next_question(message, repo, attempt.id)
 
 
@@ -45,7 +51,8 @@ async def help_command(message: Message) -> None:
     await message.answer(
         "Команды:\n"
         "/start — начать или продолжить опрос\n"
-        "/help — показать подсказку"
+        "/help — показать подсказку",
+        protect_content=True,
     )
 
 
@@ -83,7 +90,10 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
 
     completed = await repo.complete_attempt_if_finished(attempt.id, callback.from_user)
     if completed:
-        await callback.message.answer("Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏")
+        await callback.message.answer(
+            "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
+            protect_content=True,
+        )
         return
 
     await send_next_question(callback.message, repo, attempt.id)
@@ -99,19 +109,28 @@ async def remove_answered_question(message: Message) -> None:
 
 @router.message()
 async def fallback(message: Message) -> None:
-    await message.answer("Нажмите /start, чтобы начать или продолжить опрос.")
+    await message.answer(
+        "Нажмите /start, чтобы начать или продолжить опрос.",
+        protect_content=True,
+    )
 
 
 async def send_next_question(message: Message, repo: QuizRepository, attempt_id: int) -> None:
     question = await repo.get_next_question(attempt_id)
     if question is None:
-        await message.answer("Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏")
+        await message.answer(
+            "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
+            protect_content=True,
+        )
         return
 
     options = await repo.get_options(question.id)
     if not options:
         logger.warning("Question %s has no answer options", question.id)
-        await message.answer("Вопрос временно недоступен. Обратитесь к администратору.")
+        await message.answer(
+            "Вопрос временно недоступен. Обратитесь к администратору.",
+            protect_content=True,
+        )
         return
 
     await _send_question(message, question, options)
@@ -126,18 +145,23 @@ async def _send_question(message: Message, question: Question, options: list[Ans
     keyboard = question_keyboard(options)
     photo = question.photo_file_id or question.photo_url
     if not photo:
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(text, reply_markup=keyboard, protect_content=True)
         return
 
     try:
-        await message.answer_photo(photo=photo, caption=text, reply_markup=keyboard)
+        await message.answer_photo(
+            photo=photo,
+            caption=text,
+            reply_markup=keyboard,
+            protect_content=True,
+        )
     except TelegramBadRequest as exc:
         logger.warning(
             "Failed to send photo for question %s, falling back to text: %s",
             question.id,
             exc,
         )
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(text, reply_markup=keyboard, protect_content=True)
 
 
 async def main() -> None:
