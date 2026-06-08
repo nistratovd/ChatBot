@@ -38,8 +38,9 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
 
     attempt = await repo.get_or_create_active_attempt(message.from_user)
     if attempt is None:
-        await message.answer(
-            "Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»",
+        await message.answer_photo(
+            photo="https://lassie.ru/upload/konkurs/images/ups.png",
+            caption="Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»",
             reply_markup=restart_keyboard(),
             protect_content=True,
         )
