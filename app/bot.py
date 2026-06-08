@@ -53,12 +53,12 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
         )
         return
 
-    await message.answer(
-        "Опрос начался. Выберите один вариант ответа для каждого вопроса.",
-        reply_markup=remove_restart_keyboard(),
-        protect_content=True,
+    await send_next_question(
+        message,
+        repo,
+        attempt.id,
+        intro_text="Опрос начался. Выберите один вариант ответа для каждого вопроса.",
     )
-    await send_next_question(message, repo, attempt.id)
 
 
 async def ensure_quiz_access(message: Message, repo: QuizRepository) -> bool:
@@ -175,7 +175,12 @@ async def restart_keyboard_if_idle(
     return restart_keyboard()
 
 
-async def send_next_question(message: Message, repo: QuizRepository, attempt_id: int) -> None:
+async def send_next_question(
+    message: Message,
+    repo: QuizRepository,
+    attempt_id: int,
+    intro_text: str | None = None,
+) -> None:
     question = await repo.get_next_question(attempt_id)
     if question is None:
         await message.answer(
@@ -195,14 +200,22 @@ async def send_next_question(message: Message, repo: QuizRepository, attempt_id:
         )
         return
 
-    await _send_question(message, question, options)
+    await _send_question(message, question, options, intro_text=intro_text)
 
 
-async def _send_question(message: Message, question: Question, options: list[AnswerOption]) -> None:
+async def _send_question(
+    message: Message,
+    question: Question,
+    options: list[AnswerOption],
+    intro_text: str | None = None,
+) -> None:
     if question.display_number is None:
         text = escape_html_text(question.text)
     else:
         text = f"Вопрос {question.display_number}:\n{escape_html_text(question.text)}"
+
+    if intro_text:
+        text = f"{escape_html_text(intro_text)}\n\n{text}"
 
     keyboard = question_keyboard(options)
     photo = question.photo_file_id or question.photo_url
