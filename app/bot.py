@@ -8,7 +8,7 @@ from contextlib import suppress
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommand,
@@ -41,25 +41,29 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
     if message.from_user is None:
         return
 
+    await clear_chat_on_restart(message, repo)
+
     if not await ensure_quiz_access(message, repo):
         return
 
     attempt = await repo.get_or_create_active_attempt(message.from_user)
     if attempt is None:
-        await message.answer_photo(
+        sent = await message.answer_photo(
             photo="https://lassie.ru/upload/konkurs/images/ups.png?v",
             caption="Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»",
             reply_markup=restart_keyboard(),
             protect_content=True,
         )
+        await remember_bot_message(repo, sent, message.from_user.id)
         return
 
     if attempt.total_questions == 0:
-        await message.answer(
+        sent = await message.answer(
             "Опрос пока не содержит активных вопросов. Попробуйте позже.",
             reply_markup=restart_keyboard(),
             protect_content=True,
         )
+        await remember_bot_message(repo, sent, message.from_user.id)
         return
 
     await send_next_question(
@@ -67,6 +71,7 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
         repo,
         attempt.id,
         #intro_text="Опрос начался. Выберите один вариант ответа для каждого вопроса.",
+        user_id=message.from_user.id,
     )
 
 
@@ -78,23 +83,49 @@ async def ensure_quiz_access(message: Message, repo: QuizRepository) -> bool:
         await repo.sync_allowed_user_profile(message.from_user)
         return True
 
-    await message.answer(
+    sent = await message.answer(
         "Опрос доступен только участникам закрытого тестирования.",
         reply_markup=restart_keyboard(),
         protect_content=True,
     )
+    await remember_bot_message(repo, sent, message.from_user.id)
     return False
+
+
+async def clear_chat_on_restart(message: Message, repo: QuizRepository) -> None:
+    if message.from_user is None:
+        return
+
+    message_ids = await repo.list_bot_messages(
+        chat_id=message.chat.id,
+        user_id=message.from_user.id,
+    )
+    for message_id in message_ids:
+        with suppress(TelegramBadRequest, TelegramForbiddenError):
+            await message.bot.delete_message(chat_id=message.chat.id, message_id=message_id)
+
+    await repo.clear_bot_messages(chat_id=message.chat.id, user_id=message.from_user.id)
+
+
+async def remember_bot_message(repo: QuizRepository, message: Message, user_id: int) -> None:
+    await repo.remember_bot_message(
+        chat_id=message.chat.id,
+        message_id=message.message_id,
+        user_id=user_id,
+    )
 
 
 @router.message(Command("help"))
 async def help_command(message: Message, repo: QuizRepository) -> None:
-    await message.answer(
+    sent = await message.answer(
         "Команды:\n"
         "/start — начать или продолжить опрос\n"
         "/help — показать подсказку",
         reply_markup=await restart_keyboard_if_idle(message, repo),
         protect_content=True,
     )
+    if message.from_user is not None:
+        await remember_bot_message(repo, sent, message.from_user.id)
 
 
 @router.callback_query(F.data.startswith("answer:"))
@@ -135,26 +166,29 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
         return
 
     await callback.answer("Ответ сохранён")
-    await remove_answered_question(callback.message)
+    await remove_answered_question(callback.message, repo)
 
     completed = await repo.complete_attempt_if_finished(attempt.id, callback.from_user)
     if completed:
-        await callback.message.answer(
+        sent = await callback.message.answer(
             "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
             reply_markup=restart_keyboard(),
             protect_content=True,
         )
+        await remember_bot_message(repo, sent, callback.from_user.id)
         return
 
-    await send_next_question(callback.message, repo, attempt.id)
+    await send_next_question(callback.message, repo, attempt.id, user_id=callback.from_user.id)
 
 
-async def remove_answered_question(message: Message) -> None:
+async def remove_answered_question(message: Message, repo: QuizRepository) -> None:
     try:
         await message.delete()
+        await repo.forget_bot_message(chat_id=message.chat.id, message_id=message.message_id)
     except TelegramBadRequest:
         with suppress(TelegramBadRequest):
             await message.edit_reply_markup(reply_markup=None)
+
 
 
 @router.message(F.text == RESTART_BUTTON_TEXT)
@@ -164,11 +198,13 @@ async def restart_button(message: Message, repo: QuizRepository) -> None:
 
 @router.message()
 async def fallback(message: Message, repo: QuizRepository) -> None:
-    await message.answer(
+    sent = await message.answer(
         "Нажмите /start, чтобы начать или продолжить опрос.",
         reply_markup=await restart_keyboard_if_idle(message, repo),
         protect_content=True,
     )
+    if message.from_user is not None:
+        await remember_bot_message(repo, sent, message.from_user.id)
 
 
 async def restart_keyboard_if_idle(
@@ -189,33 +225,40 @@ async def send_next_question(
     repo: QuizRepository,
     attempt_id: int,
     intro_text: str | None = None,
+    user_id: int | None = None,
 ) -> None:
     question = await repo.get_next_question(attempt_id)
     if question is None:
-        await message.answer(
+        sent = await message.answer(
             "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
             reply_markup=restart_keyboard(),
             protect_content=True,
         )
+        if user_id is not None:
+            await remember_bot_message(repo, sent, user_id)
         return
 
     options = await repo.get_options(question.id)
     if not options:
         logger.warning("Question %s has no answer options", question.id)
-        await message.answer(
+        sent = await message.answer(
             "Вопрос временно недоступен. Обратитесь к администратору.",
             reply_markup=remove_restart_keyboard(),
             protect_content=True,
         )
+        if user_id is not None:
+            await remember_bot_message(repo, sent, user_id)
         return
 
-    await _send_question(message, question, options, intro_text=intro_text)
+    await _send_question(message, question, options, repo, user_id, intro_text=intro_text)
 
 
 async def _send_question(
     message: Message,
     question: Question,
     options: list[AnswerOption],
+    repo: QuizRepository,
+    user_id: int | None,
     intro_text: str | None = None,
 ) -> None:
     if question.display_number is None:
@@ -229,23 +272,29 @@ async def _send_question(
     keyboard = question_keyboard(options)
     photo = question.photo_file_id or question.photo_url
     if not photo:
-        await message.answer(text, reply_markup=keyboard, protect_content=True)
+        sent = await message.answer(text, reply_markup=keyboard, protect_content=True)
+        if user_id is not None:
+            await remember_bot_message(repo, sent, user_id)
         return
 
     try:
-        await message.answer_photo(
+        sent = await message.answer_photo(
             photo=photo,
             caption=text,
             reply_markup=keyboard,
             protect_content=True,
         )
+        if user_id is not None:
+            await remember_bot_message(repo, sent, user_id)
     except TelegramBadRequest as exc:
         logger.warning(
             "Failed to send photo for question %s, falling back to text: %s",
             question.id,
             exc,
         )
-        await message.answer(text, reply_markup=keyboard, protect_content=True)
+        sent = await message.answer(text, reply_markup=keyboard, protect_content=True)
+        if user_id is not None:
+            await remember_bot_message(repo, sent, user_id)
 
 
 async def main() -> None:

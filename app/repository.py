@@ -92,6 +92,52 @@ class QuizRepository:
         result = await self.pool.execute("DELETE FROM quiz_allowed_users")
         return int(result.split()[-1])
 
+    async def remember_bot_message(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        user_id: int,
+    ) -> None:
+        await self.pool.execute(
+            """
+            INSERT INTO bot_chat_messages (chat_id, message_id, telegram_user_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (chat_id, message_id) DO UPDATE
+            SET telegram_user_id=EXCLUDED.telegram_user_id
+            """,
+            chat_id,
+            message_id,
+            user_id,
+        )
+
+    async def list_bot_messages(self, *, chat_id: int, user_id: int) -> list[int]:
+        rows = await self.pool.fetch(
+            """
+            SELECT message_id
+            FROM bot_chat_messages
+            WHERE chat_id=$1 AND telegram_user_id=$2
+            ORDER BY created_at DESC, message_id DESC
+            """,
+            chat_id,
+            user_id,
+        )
+        return [row["message_id"] for row in rows]
+
+    async def forget_bot_message(self, *, chat_id: int, message_id: int) -> None:
+        await self.pool.execute(
+            "DELETE FROM bot_chat_messages WHERE chat_id=$1 AND message_id=$2",
+            chat_id,
+            message_id,
+        )
+
+    async def clear_bot_messages(self, *, chat_id: int, user_id: int) -> None:
+        await self.pool.execute(
+            "DELETE FROM bot_chat_messages WHERE chat_id=$1 AND telegram_user_id=$2",
+            chat_id,
+            user_id,
+        )
+
     async def has_completed_quiz(self, user_id: int) -> bool:
         return await self.pool.fetchval(
             "SELECT EXISTS(SELECT 1 FROM quiz_attempts WHERE telegram_user_id=$1 AND completed_at IS NOT NULL)",
@@ -360,6 +406,7 @@ async def reset_database(pool: asyncpg.Pool, *, include_questions: bool = False)
     if include_questions:
         truncate_sql = """
         TRUNCATE TABLE
+            bot_chat_messages,
             successful_users,
             user_answers,
             quiz_attempts,
@@ -370,6 +417,7 @@ async def reset_database(pool: asyncpg.Pool, *, include_questions: bool = False)
     else:
         truncate_sql = """
         TRUNCATE TABLE
+            bot_chat_messages,
             successful_users,
             user_answers,
             quiz_attempts
