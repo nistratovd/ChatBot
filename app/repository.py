@@ -6,7 +6,7 @@ from pathlib import Path
 import asyncpg
 from aiogram.types import User
 
-from app.models import AnswerOption, Attempt, Question
+from app.models import AllowedUser, AnswerOption, Attempt, Question
 
 
 class QuizRepository:
@@ -14,6 +14,83 @@ class QuizRepository:
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
+
+    async def is_user_allowed(self, user_id: int) -> bool:
+        """Проверяет доступ к квизу: пустой allowlist означает открытый опрос."""
+
+        return await self.pool.fetchval(
+            """
+            SELECT NOT EXISTS(SELECT 1 FROM quiz_allowed_users)
+                OR EXISTS(
+                    SELECT 1 FROM quiz_allowed_users
+                    WHERE telegram_user_id=$1
+                )
+            """,
+            user_id,
+        )
+
+    async def sync_allowed_user_profile(self, user: User) -> None:
+        await self.pool.execute(
+            """
+            UPDATE quiz_allowed_users
+            SET username=$2, first_name=$3, last_name=$4, updated_at=NOW()
+            WHERE telegram_user_id=$1
+            """,
+            user.id,
+            user.username,
+            user.first_name,
+            user.last_name,
+        )
+
+    async def add_allowed_user(
+        self,
+        *,
+        user_id: int,
+        username: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        note: str | None = None,
+    ) -> AllowedUser:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO quiz_allowed_users (telegram_user_id, username, first_name, last_name, note)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (telegram_user_id) DO UPDATE
+            SET username=EXCLUDED.username,
+                first_name=EXCLUDED.first_name,
+                last_name=EXCLUDED.last_name,
+                note=EXCLUDED.note,
+                updated_at=NOW()
+            RETURNING telegram_user_id, username, first_name, last_name, note, created_at, updated_at
+            """,
+            user_id,
+            username,
+            first_name,
+            last_name,
+            note,
+        )
+        return _allowed_user_from_row(row)
+
+    async def remove_allowed_user(self, user_id: int) -> bool:
+        result = await self.pool.execute(
+            "DELETE FROM quiz_allowed_users WHERE telegram_user_id=$1",
+            user_id,
+        )
+        return result == "DELETE 1"
+
+    async def list_allowed_users(self) -> list[AllowedUser]:
+        rows = await self.pool.fetch(
+            """
+            SELECT telegram_user_id, username, first_name, last_name, note, created_at, updated_at
+            FROM quiz_allowed_users
+            ORDER BY created_at ASC, telegram_user_id ASC
+            """
+        )
+        return [_allowed_user_from_row(row) for row in rows]
+
+    async def clear_allowed_users(self) -> int:
+        result = await self.pool.execute("DELETE FROM quiz_allowed_users")
+        return int(result.split()[-1])
 
     async def has_completed_quiz(self, user_id: int) -> bool:
         return await self.pool.fetchval(
@@ -363,6 +440,18 @@ def _option_from_row(row: asyncpg.Record) -> AnswerOption:
         text=row["text"],
         is_correct=row["is_correct"],
         sort_order=row["sort_order"],
+    )
+
+
+def _allowed_user_from_row(row: asyncpg.Record) -> AllowedUser:
+    return AllowedUser(
+        telegram_user_id=row["telegram_user_id"],
+        username=row["username"],
+        first_name=row["first_name"],
+        last_name=row["last_name"],
+        note=row["note"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
