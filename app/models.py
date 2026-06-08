@@ -29,3 +29,14 @@ class Attempt:
     total_questions: int
     correct_answers: int
     is_all_correct: bool
+
+
+@dataclass(slots=True, frozen=True)
+class AllowedUser:
+    telegram_user_id: int
+    username: str | None
+    first_name: str | None
+    last_name: str | None
+    note: str | None
+    created_at: datetime
+    updated_at: datetime

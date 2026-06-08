@@ -27,6 +27,9 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
     if message.from_user is None:
         return
 
+    if not await ensure_quiz_access(message, repo):
+        return
+
     attempt = await repo.get_or_create_active_attempt(message.from_user)
     if attempt is None:
         await message.answer(
@@ -44,6 +47,21 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
 
     # await message.answer("Опрос начался. Выберите один вариант ответа для каждого вопроса.")
     await send_next_question(message, repo, attempt.id)
+
+
+async def ensure_quiz_access(message: Message, repo: QuizRepository) -> bool:
+    if message.from_user is None:
+        return False
+
+    if await repo.is_user_allowed(message.from_user.id):
+        await repo.sync_allowed_user_profile(message.from_user)
+        return True
+
+    await message.answer(
+        "Опрос доступен только участникам закрытого тестирования.",
+        protect_content=True,
+    )
+    return False
 
 
 @router.message(Command("help"))
@@ -69,6 +87,14 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
     except ValueError:
         await callback.answer("Некорректный ответ", show_alert=True)
         return
+
+    if not await repo.is_user_allowed(callback.from_user.id):
+        await callback.answer(
+            "Опрос доступен только участникам закрытого тестирования.",
+            show_alert=True,
+        )
+        return
+    await repo.sync_allowed_user_profile(callback.from_user)
 
     attempt = await repo.get_or_create_active_attempt(callback.from_user)
     if attempt is None:

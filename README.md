@@ -11,6 +11,7 @@
 - пользователи, ответившие на все вопросы правильно, сохраняются в `successful_users`;
 - после завершения бот отправляет сообщение `Опрос завершён. Спасибо за ваши ответы!`;
 - повторное прохождение запрещено после любого полностью завершённого опроса;
+- опрос можно закрыть allowlist-списком Telegram-пользователей для закрытого тестирования;
 - асинхронная обработка Telegram-событий и пул соединений PostgreSQL для высокой нагрузки;
 - контейнер запускается без root, с `read_only`, `cap_drop` и `no-new-privileges`.
 
@@ -82,6 +83,42 @@
 Если фото уже загружено в Telegram, можно указать `photo_file_id`; иначе используйте публичный HTTPS URL в `photo_url`.
 `photo_url` должен вести прямо на изображение; если Telegram не сможет отправить фото, бот запишет предупреждение в лог и отправит вопрос обычным текстом с вариантами ответа.
 
+
+## Закрытое тестирование
+
+По умолчанию список доступа пуст, поэтому опрос открыт для всех пользователей.
+Как только в список добавлен хотя бы один Telegram user ID, пройти опрос и отвечать на вопросы смогут только пользователи из этого списка.
+
+Добавить или обновить пользователя в списке доступа:
+
+```bash
+docker compose run --rm bot python -m app.maintenance allow-users add 123456789 --username tester --note "закрытый тест"
+```
+
+Посмотреть текущий список:
+
+```bash
+docker compose run --rm bot python -m app.maintenance allow-users list
+```
+
+Удалить пользователя из списка:
+
+```bash
+docker compose run --rm bot python -m app.maintenance allow-users remove 123456789
+```
+
+Полностью очистить список и снова открыть опрос для всех:
+
+```bash
+docker compose run --rm bot python -m app.maintenance allow-users clear --yes
+```
+
+Если запускаете команды с хоста, передайте `--database-url` перед названием команды, например:
+
+```bash
+python -m app.maintenance --database-url postgresql://quiz:long-random-password@127.0.0.1:5432/quiz_bot allow-users list
+```
+
 ## Просмотр результатов
 
 В проекте есть консольная команда `app.report`, которая читает PostgreSQL и показывает результаты без доступа к Telegram.
@@ -137,7 +174,8 @@ docker compose run --rm bot python -m app.maintenance reset-db --with-questions 
 - `answer_options` — варианты ответов и признак правильности;
 - `quiz_attempts` — попытки прохождения пользователей;
 - `user_answers` — все ответы пользователей;
-- `successful_users` — пользователи, ответившие правильно на все вопросы.
+- `successful_users` — пользователи, ответившие правильно на все вопросы;
+- `quiz_allowed_users` — allowlist пользователей для закрытого тестирования.
 
 ## Нагрузка и безопасность
 

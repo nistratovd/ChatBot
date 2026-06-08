@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS successful_users (
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS quiz_allowed_users (
+    telegram_user_id BIGINT PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_questions_active_order ON questions (is_active, sort_order);
 CREATE INDEX IF NOT EXISTS idx_options_question_order ON answer_options (question_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_attempts_user_completed ON quiz_attempts (telegram_user_id, completed_at DESC);
