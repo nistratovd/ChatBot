@@ -66,6 +66,8 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
         await remember_bot_message(repo, sent, message.from_user.id)
         return
 
+    await hide_restart_keyboard_for_active_quiz(message, repo, user_id)
+
     await send_next_question(
         message,
         repo,
@@ -249,9 +251,6 @@ async def send_next_question(
         if user_id is not None:
             await remember_bot_message(repo, sent, user_id)
         return
-
-    if user_id is not None:
-        await hide_restart_keyboard_for_active_quiz(message, repo, user_id)
 
     await _send_question(message, question, options, repo, user_id, intro_text=intro_text)
 
