@@ -22,6 +22,7 @@ from app.keyboards import (
 )
 from app.models import AnswerOption, Question
 from app.repository import QuizRepository, apply_schema
+from app.security import escape_html_text
 
 router = Router(name="quiz")
 logger = logging.getLogger(__name__)
@@ -199,9 +200,9 @@ async def send_next_question(message: Message, repo: QuizRepository, attempt_id:
 
 async def _send_question(message: Message, question: Question, options: list[AnswerOption]) -> None:
     if question.display_number is None:
-        text = question.text
+        text = escape_html_text(question.text)
     else:
-        text = f"Вопрос {question.display_number}:\n{question.text}"
+        text = f"Вопрос {question.display_number}:\n{escape_html_text(question.text)}"
 
     keyboard = question_keyboard(options)
     photo = question.photo_file_id or question.photo_url

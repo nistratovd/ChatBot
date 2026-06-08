@@ -4,11 +4,11 @@ import csv
 import os
 import sys
 from collections.abc import Sequence
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import asyncpg
+
+from app.security import format_plain_value, sanitize_csv_cell
 
 COLUMNS: dict[str, Sequence[str]] = {
     "attempts": (
@@ -175,11 +175,11 @@ def write_csv(rows: Sequence[asyncpg.Record], columns: Sequence[str]) -> None:
     writer = csv.DictWriter(sys.stdout, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
     for row in rows:
-        writer.writerow({column: format_value(row[column]) for column in columns})
+        writer.writerow({column: sanitize_csv_cell(row[column]) for column in columns})
 
 
 def write_table(rows: Sequence[asyncpg.Record], columns: Sequence[str]) -> None:
-    prepared_rows = [tuple(format_value(row[column]) for column in columns) for row in rows]
+    prepared_rows = [tuple(format_plain_value(row[column]) for column in columns) for row in rows]
     widths = [len(column) for column in columns]
     for row in prepared_rows:
         widths = [max(width, len(value)) for width, value in zip(widths, row, strict=True)]
@@ -190,16 +190,6 @@ def write_table(rows: Sequence[asyncpg.Record], columns: Sequence[str]) -> None:
     print(separator)
     for row in prepared_rows:
         print(" | ".join(value.ljust(width) for value, width in zip(row, widths, strict=True)))
-
-
-def format_value(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "да" if value else "нет"
-    if isinstance(value, datetime):
-        return value.isoformat(timespec="seconds")
-    return str(value).replace("\n", " ")
 
 
 if __name__ == "__main__":
