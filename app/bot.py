@@ -14,7 +14,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.config import get_settings
 from app.database import create_pool
-from app.keyboards import RESTART_CALLBACK_DATA, question_keyboard, restart_keyboard
+from app.keyboards import question_keyboard
 from app.models import AnswerOption, Question
 from app.repository import QuizRepository, apply_schema
 
@@ -33,8 +33,7 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
     attempt = await repo.get_or_create_active_attempt(message.from_user)
     if attempt is None:
         await message.answer(
-            "Вы уже прошли опрос. Если хотите пройти его заново, нажмите «Перезапуск».",
-            reply_markup=restart_keyboard(),
+            "Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»",
             protect_content=True,
         )
         return
@@ -42,7 +41,6 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
     if attempt.total_questions == 0:
         await message.answer(
             "Опрос пока не содержит активных вопросов. Попробуйте позже.",
-            reply_markup=restart_keyboard(),
             protect_content=True,
         )
         return
@@ -120,52 +118,6 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
     if completed:
         await callback.message.answer(
             "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
-            reply_markup=restart_keyboard(),
-            protect_content=True,
-        )
-        return
-
-    await send_next_question(callback.message, repo, attempt.id)
-
-
-@router.callback_query(F.data == RESTART_CALLBACK_DATA)
-async def restart_quiz(callback: CallbackQuery, repo: QuizRepository) -> None:
-    if callback.from_user is None or callback.message is None:
-        await callback.answer("Некорректный запрос", show_alert=True)
-        return
-
-    if not await repo.is_user_allowed(callback.from_user.id):
-        await callback.answer(
-            "Опрос доступен только участникам закрытого тестирования.",
-            show_alert=True,
-        )
-        return
-    await repo.sync_allowed_user_profile(callback.from_user)
-
-    active_attempt = await repo.get_active_attempt(callback.from_user.id)
-    if active_attempt is not None and active_attempt.total_questions > 0:
-        await callback.answer(
-            "Опрос уже идёт. Продолжите отвечать на текущий вопрос.",
-            show_alert=True,
-        )
-        with suppress(TelegramBadRequest):
-            await callback.message.edit_reply_markup(reply_markup=None)
-        return
-
-    await repo.reset_user_progress(callback.from_user)
-    attempt = await repo.get_or_create_active_attempt(callback.from_user)
-    if attempt is None:
-        await callback.answer("Не удалось перезапустить опрос", show_alert=True)
-        return
-
-    await callback.answer("Опрос перезапущен")
-    with suppress(TelegramBadRequest):
-        await callback.message.edit_reply_markup(reply_markup=None)
-
-    if attempt.total_questions == 0:
-        await callback.message.answer(
-            "Опрос пока не содержит активных вопросов. Попробуйте позже.",
-            reply_markup=restart_keyboard(),
             protect_content=True,
         )
         return
@@ -182,25 +134,7 @@ async def remove_answered_question(message: Message) -> None:
 
 
 @router.message()
-async def fallback(message: Message, repo: QuizRepository) -> None:
-    if message.from_user is None:
-        await message.answer(
-            "Нажмите /start, чтобы начать или продолжить опрос.",
-            protect_content=True,
-        )
-        return
-
-    if not await ensure_quiz_access(message, repo):
-        return
-
-    if await repo.has_completed_quiz(message.from_user.id):
-        await message.answer(
-            "Вы уже прошли опрос. Если хотите пройти его заново, нажмите «Перезапуск».",
-            reply_markup=restart_keyboard(),
-            protect_content=True,
-        )
-        return
-
+async def fallback(message: Message) -> None:
     await message.answer(
         "Нажмите /start, чтобы начать или продолжить опрос.",
         protect_content=True,
@@ -212,7 +146,6 @@ async def send_next_question(message: Message, repo: QuizRepository, attempt_id:
     if question is None:
         await message.answer(
             "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
-            reply_markup=restart_keyboard(),
             protect_content=True,
         )
         return

@@ -98,27 +98,6 @@ class QuizRepository:
             user_id,
         )
 
-    async def get_active_attempt(self, user_id: int) -> Attempt | None:
-        row = await self.pool.fetchrow(
-            """
-            SELECT id, telegram_user_id, completed_at, total_questions, correct_answers, is_all_correct
-            FROM quiz_attempts
-            WHERE telegram_user_id=$1 AND completed_at IS NULL
-            ORDER BY started_at DESC
-            LIMIT 1
-            """,
-            user_id,
-        )
-        return _attempt_from_row(row) if row else None
-
-    async def reset_user_progress(self, user: User) -> None:
-        async with self.pool.acquire() as conn, conn.transaction():
-            await conn.execute("SELECT pg_advisory_xact_lock($1)", user.id)
-            await conn.execute(
-                "DELETE FROM quiz_attempts WHERE telegram_user_id=$1",
-                user.id,
-            )
-
     async def get_or_create_active_attempt(self, user: User) -> Attempt | None:
         completed = await self.has_completed_quiz(user.id)
         if completed:
