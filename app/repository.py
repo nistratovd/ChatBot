@@ -98,6 +98,24 @@ class QuizRepository:
             user_id,
         )
 
+    async def is_user_voting(self, user_id: int) -> bool:
+        return await self.pool.fetchval(
+            """
+            SELECT EXISTS(
+                SELECT 1
+                FROM quiz_attempts qa
+                WHERE qa.telegram_user_id=$1
+                  AND qa.completed_at IS NULL
+                  AND qa.total_questions > (
+                      SELECT COUNT(*)
+                      FROM user_answers ua
+                      WHERE ua.attempt_id=qa.id
+                  )
+            )
+            """,
+            user_id,
+        )
+
     async def get_or_create_active_attempt(self, user: User) -> Attempt | None:
         completed = await self.has_completed_quiz(user.id)
         if completed:
