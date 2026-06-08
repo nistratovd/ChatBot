@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS successful_users (
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+
+CREATE TABLE IF NOT EXISTS bot_chat_messages (
+    chat_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    telegram_user_id BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (chat_id, message_id)
+);
+
 CREATE TABLE IF NOT EXISTS quiz_allowed_users (
     telegram_user_id BIGINT PRIMARY KEY,
     username TEXT,
@@ -61,6 +70,7 @@ CREATE TABLE IF NOT EXISTS quiz_allowed_users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_bot_chat_messages_user ON bot_chat_messages (telegram_user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_questions_active_order ON questions (is_active, sort_order);
 CREATE INDEX IF NOT EXISTS idx_options_question_order ON answer_options (question_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_attempts_user_completed ON quiz_attempts (telegram_user_id, completed_at DESC);
