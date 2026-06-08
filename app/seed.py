@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from app.database import create_pool
 from app.repository import apply_schema, seed_questions
+from app.security import mask_sensitive_text
 
 
 async def main() -> None:
@@ -47,7 +48,7 @@ async def connect_to_database(database_url: str | None) -> asyncpg.Pool:
 def build_connection_error(exc: BaseException) -> str:
     hint = (
         "Не удалось подключиться к PostgreSQL для загрузки вопросов.\n"
-        f"Причина: {exc}\n\n"
+        f"Причина: {mask_sensitive_text(str(exc))}\n\n"
         "Проверьте, что PostgreSQL запущен и DATABASE_URL указывает на доступный хост.\n"
         "Если запускаете команду внутри Docker Compose, используйте:\n"
         "  docker compose up -d postgres\n"
