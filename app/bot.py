@@ -10,7 +10,13 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import (
+    BotCommand,
+    CallbackQuery,
+    Message,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
 
 from app.config import get_settings
 from app.database import create_pool
@@ -26,6 +32,8 @@ from app.security import escape_html_text
 
 router = Router(name="quiz")
 logger = logging.getLogger(__name__)
+
+BOT_COMMANDS = [BotCommand(command="start", description="Перезапуск")]
 
 
 @router.message(CommandStart())
@@ -255,6 +263,7 @@ async def main() -> None:
     )
     dispatcher = Dispatcher(repo=QuizRepository(pool))
     dispatcher.include_router(router)
+    await bot.set_my_commands(BOT_COMMANDS)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
