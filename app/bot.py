@@ -250,7 +250,27 @@ async def send_next_question(
             await remember_bot_message(repo, sent, user_id)
         return
 
+    if user_id is not None:
+        await hide_restart_keyboard_for_active_quiz(message, repo, user_id)
+
     await _send_question(message, question, options, repo, user_id, intro_text=intro_text)
+
+
+async def hide_restart_keyboard_for_active_quiz(
+    message: Message,
+    repo: QuizRepository,
+    user_id: int,
+) -> None:
+    with suppress(TelegramBadRequest, TelegramForbiddenError):
+        sent = await message.answer(
+            "\u2063",
+            reply_markup=remove_restart_keyboard(),
+            protect_content=True,
+        )
+        try:
+            await sent.delete()
+        except (TelegramBadRequest, TelegramForbiddenError):
+            await remember_bot_message(repo, sent, user_id)
 
 
 async def _send_question(
