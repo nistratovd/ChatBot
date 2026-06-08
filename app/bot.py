@@ -66,7 +66,7 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
         message,
         repo,
         attempt.id,
-        intro_text="Опрос начался. Выберите один вариант ответа для каждого вопроса.",
+        #intro_text="Опрос начался. Выберите один вариант ответа для каждого вопроса.",
     )
 
 
