@@ -10,11 +10,16 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
 
 from app.config import get_settings
 from app.database import create_pool
-from app.keyboards import question_keyboard
+from app.keyboards import (
+    RESTART_BUTTON_TEXT,
+    question_keyboard,
+    remove_restart_keyboard,
+    restart_keyboard,
+)
 from app.models import AnswerOption, Question
 from app.repository import QuizRepository, apply_schema
 
@@ -34,6 +39,7 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
     if attempt is None:
         await message.answer(
             "Упс... Как говорил Джейсон Стетхем: «В одну и ту же реку нельзя войти дважды, а этот квиз можно пройти лишь однажды»",
+            reply_markup=restart_keyboard(),
             protect_content=True,
         )
         return
@@ -41,11 +47,16 @@ async def start_quiz(message: Message, repo: QuizRepository) -> None:
     if attempt.total_questions == 0:
         await message.answer(
             "Опрос пока не содержит активных вопросов. Попробуйте позже.",
+            reply_markup=restart_keyboard(),
             protect_content=True,
         )
         return
 
-    # await message.answer("Опрос начался. Выберите один вариант ответа для каждого вопроса.")
+    await message.answer(
+        "Опрос начался. Выберите один вариант ответа для каждого вопроса.",
+        reply_markup=remove_restart_keyboard(),
+        protect_content=True,
+    )
     await send_next_question(message, repo, attempt.id)
 
 
@@ -59,17 +70,19 @@ async def ensure_quiz_access(message: Message, repo: QuizRepository) -> bool:
 
     await message.answer(
         "Опрос доступен только участникам закрытого тестирования.",
+        reply_markup=restart_keyboard(),
         protect_content=True,
     )
     return False
 
 
 @router.message(Command("help"))
-async def help_command(message: Message) -> None:
+async def help_command(message: Message, repo: QuizRepository) -> None:
     await message.answer(
         "Команды:\n"
         "/start — начать или продолжить опрос\n"
         "/help — показать подсказку",
+        reply_markup=await restart_keyboard_if_idle(message, repo),
         protect_content=True,
     )
 
@@ -118,6 +131,7 @@ async def process_answer(callback: CallbackQuery, repo: QuizRepository) -> None:
     if completed:
         await callback.message.answer(
             "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
+            reply_markup=restart_keyboard(),
             protect_content=True,
         )
         return
@@ -133,12 +147,31 @@ async def remove_answered_question(message: Message) -> None:
             await message.edit_reply_markup(reply_markup=None)
 
 
+@router.message(F.text == RESTART_BUTTON_TEXT)
+async def restart_button(message: Message, repo: QuizRepository) -> None:
+    await start_quiz(message, repo)
+
+
 @router.message()
-async def fallback(message: Message) -> None:
+async def fallback(message: Message, repo: QuizRepository) -> None:
     await message.answer(
         "Нажмите /start, чтобы начать или продолжить опрос.",
+        reply_markup=await restart_keyboard_if_idle(message, repo),
         protect_content=True,
     )
+
+
+async def restart_keyboard_if_idle(
+    message: Message,
+    repo: QuizRepository,
+) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
+    if message.from_user is None:
+        return restart_keyboard()
+
+    if await repo.is_user_voting(message.from_user.id):
+        return remove_restart_keyboard()
+
+    return restart_keyboard()
 
 
 async def send_next_question(message: Message, repo: QuizRepository, attempt_id: int) -> None:
@@ -146,6 +179,7 @@ async def send_next_question(message: Message, repo: QuizRepository, attempt_id:
     if question is None:
         await message.answer(
             "Ты ответил на все вопросы, молодчина! Подведём итоги совсем скоро. Следи за обновлениями в BetBoom Inside 😏",
+            reply_markup=restart_keyboard(),
             protect_content=True,
         )
         return
@@ -155,6 +189,7 @@ async def send_next_question(message: Message, repo: QuizRepository, attempt_id:
         logger.warning("Question %s has no answer options", question.id)
         await message.answer(
             "Вопрос временно недоступен. Обратитесь к администратору.",
+            reply_markup=remove_restart_keyboard(),
             protect_content=True,
         )
         return
