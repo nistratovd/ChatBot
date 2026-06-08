@@ -259,6 +259,32 @@ async def apply_schema(pool: asyncpg.Pool, sql_path: Path = Path("app/sql/001_in
         await conn.execute(schema_sql)
 
 
+async def reset_database(pool: asyncpg.Pool, *, include_questions: bool = False) -> None:
+    """Очищает пользовательские данные, а при include_questions=True — всю схему квиза."""
+
+    if include_questions:
+        truncate_sql = """
+        TRUNCATE TABLE
+            successful_users,
+            user_answers,
+            quiz_attempts,
+            answer_options,
+            questions
+        RESTART IDENTITY CASCADE
+        """
+    else:
+        truncate_sql = """
+        TRUNCATE TABLE
+            successful_users,
+            user_answers,
+            quiz_attempts
+        RESTART IDENTITY CASCADE
+        """
+
+    async with pool.acquire() as conn:
+        await conn.execute(truncate_sql)
+
+
 async def seed_questions(pool: asyncpg.Pool, json_path: Path) -> None:
     questions_json = await asyncio.to_thread(json_path.read_text, encoding="utf-8")
     questions = json.loads(questions_json)
